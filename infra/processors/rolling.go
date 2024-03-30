@@ -22,6 +22,7 @@ type RollingList struct {
 	stop                      chan struct{}
 	spoolTo                   []io.Writer
 	locationOffsetMiliseconds int64
+	timestampStart            time.Time
 	retentionSeconds          int
 }
 
@@ -53,6 +54,7 @@ loop:
 		case <-l.stop:
 			{
 				log.Println("stopping processor time list")
+
 				break loop
 			}
 
@@ -117,8 +119,10 @@ func (l *RollingList) walkList(dropPast int64) {
 	var length float64
 	var sum float64
 
+	l.timestampStart = time.Now()
+
 	for currentNode.nextNode != nil {
-		if dropPast > currentNode.UNIXTimeMiliseconds {
+		if dropPast > currentNode.TimestampMiliseconds {
 			currentNode.nextNode = nil
 
 			break
@@ -131,13 +135,16 @@ func (l *RollingList) walkList(dropPast int64) {
 	}
 
 	for _, writer := range l.spoolTo {
-		go writer.Write([]byte(
-			fmt.Sprintf(
-				"%s: %.3f --- %.f \n",
-				l.streamData.Stream,
-				sum/length,
-				length),
-		),
+		go writer.Write(
+			[]byte(
+				fmt.Sprintf(
+					"%s: %.3f --- %.f (duration nano: %d) \n",
+					l.streamData.Stream,
+					sum/length,
+					length,
+					time.Since(l.timestampStart).Nanoseconds(),
+				),
+			),
 		)
 	}
 }

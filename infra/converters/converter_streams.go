@@ -8,11 +8,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const nameConverterStreams = "Binance Stream Converter"
+
 type ConvertorStreams struct {
 	processors []infra.IProcessor
 
-	payload chan []byte
-	stop    chan struct{}
+	chPayload chan []byte
+	chStop    chan struct{}
 }
 
 var _ infra.IConverter = &ConvertorStreams{}
@@ -21,8 +23,8 @@ func NewStreamsConverter(procs ...infra.IProcessor) *ConvertorStreams {
 	return &ConvertorStreams{
 		processors: procs,
 
-		payload: make(chan []byte),
-		stop:    make(chan struct{}),
+		chPayload: make(chan []byte),
+		chStop:    make(chan struct{}),
 	}
 }
 
@@ -30,33 +32,45 @@ func NewStreamsConverter(procs ...infra.IProcessor) *ConvertorStreams {
 func (t *ConvertorStreams) Convert(locationOffsetMiliseconds int64) {
 	for _, proc := range t.processors {
 		go proc.Listen(locationOffsetMiliseconds)
+
 		defer proc.Terminate()
 	}
 
 loop:
 	for {
 		select {
-		case <-t.stop:
+		case <-t.chStop:
 			{
-				log.Println("stopping converter")
+				log.Printf(
+					"stopping converter: %s",
+					nameConverterStreams,
+				)
+
 				break loop
 			}
 
-		case streamPayload := <-t.payload:
+		case streamPayload := <-t.chPayload:
 			{
 				if len(streamPayload) == 0 {
 					continue
 				}
 
-				result := gjson.GetManyBytes(streamPayload, "stream", "data.s", "data.T", "data.q", "data.p")
+				result := gjson.GetManyBytes(
+					streamPayload,
+					"stream",
+					"data.s",
+					"data.T",
+					"data.q",
+					"data.p",
+				)
 
 				for _, proc := range t.processors {
 					if proc.Payload().Stream == result[0].String() {
 						proc.Payload().Feed <- infra.PayloadTrade{
-							Symbol:              result[1].String(),
-							UNIXTimeMiliseconds: result[2].Int(),
-							Price:               result[3].Float(),
-							Quantity:            result[4].Float(),
+							Symbol:               result[1].String(),
+							TimestampMiliseconds: result[2].Int(),
+							Price:                result[3].Float(),
+							Quantity:             result[4].Float(),
 						}
 					}
 				}
@@ -74,16 +88,21 @@ func (t *ConvertorStreams) Payload() infra.Streams {
 
 	return infra.Streams{
 		Symbols: symbols,
-		Feed:    t.payload,
+		Feed:    t.chPayload,
 	}
 }
 
 func (t *ConvertorStreams) Terminate() {
 	defer t.cleanUp()
 
-	t.stop <- struct{}{}
+	t.chStop <- struct{}{}
 }
 
 func (t *ConvertorStreams) cleanUp() {
-	close(t.stop)
+	log.Printf(
+		"clean-up converter: %s",
+		nameConverterStreams,
+	)
+
+	close(t.chStop)
 }

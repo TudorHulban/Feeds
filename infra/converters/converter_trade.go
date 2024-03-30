@@ -47,17 +47,17 @@ loop:
 				result := gjson.GetManyBytes(payload, "s", "T", "q", "p")
 
 				processorPayload <- infra.PayloadTrade{
-					Symbol:              result[0].String(),
-					UNIXTimeMiliseconds: result[1].Int(),
-					Price:               result[2].Float(),
-					Quantity:            result[3].Float(),
+					Symbol:               result[0].String(),
+					TimestampMiliseconds: result[1].Int(),
+					Price:                result[2].Float(),
+					Quantity:             result[3].Float(),
 				}
 			}
 		}
 	}
 }
 
-func (t *ConvertorBinanceTrade) Payload() infra.Feed {
+func (t *ConvertorBinanceTrade) Payload() chan []byte {
 	return t.payload
 }
 
